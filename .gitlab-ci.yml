@@ -1,0 +1,62 @@
+stages:
+  - build
+  - test
+  - deploy
+
+image: docker:stable
+
+variables:
+  CONTAINER_IMAGE: $CI_REGISTRY/$CI_PROJECT_PATH
+  STACK_NAME: web
+  SERVICE_NAME: ${STACK_NAME}_website
+  DOCKER_DRIVER: overlay2
+
+before_script:
+  - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
+  # Lowercasing project path for container registry: it fails otherwise
+  - export GATEWAY_CONTAINER_IMAGE=$(echo $GATEWAY_CONTAINER_IMAGE | tr '[:upper:]' '[:lower:]')
+
+.deploy: &deploy_script
+  script:
+    - docker pull $CONTAINER_IMAGE:$CONTAINER_TAG
+    - docker service update $SERVICE_NAME --image $CONTAINER_IMAGE:$CONTAINER_TAG --force
+
+build:
+  stage: build
+  tags:
+    - build-server
+  only:
+    - master
+  variables:
+    RELEASE_TYPE: latest
+  script:
+    - docker pull $CONTAINER_IMAGE:latest || true
+    - docker build --cache-from $CONTAINER_IMAGE:latest --tag $CONTAINER_IMAGE:latest -f Dockerfile.Web .
+    - docker push $CONTAINER_IMAGE:latest
+
+build-tag:
+  stage: build
+  tags:
+    - build-server
+  only:
+    - tags
+  script:
+    - docker pull $CONTAINER_IMAGE:latest || true
+    - docker build --cache-from $CONTAINER_IMAGE:latest --tag $CONTAINER_IMAGE:$CI_COMMIT_TAG --tag $CONTAINER_IMAGE:stable -f Dockerfile.Web .
+    - docker push $CONTAINER_IMAGE:stable
+    - docker push $CONTAINER_IMAGE:$CI_COMMIT_TAG
+  
+deploy:
+  stage: deploy
+  tags:
+    - website
+  environment:
+    name: production
+    url: $WEBSITE_URL
+  variables:
+    CONTAINER_TAG: stable
+  only:
+    - tags
+  <<: *deploy_script
+
+

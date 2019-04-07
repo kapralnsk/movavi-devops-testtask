@@ -1,0 +1,93 @@
+version: '3.6'
+services:
+  postgres-master:
+    image: postgres:10
+    deploy:
+      constraints:
+        - node.role == manager
+    networks:
+      - internal
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    secrets:
+      - postgres-user
+      - postgres-password
+    environment:
+      - POSTGRES_USER_FILE=/run/secrets/postgres-user
+      - POSTGRES_PASSWORD_FILE=/run/secrets/postgres-password
+
+  # read-only logical replica of postgres-master for website
+  postgres-replica:
+    image: postgres:10
+      mode: global
+    networks:
+      - internal
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    secrets:
+      - postgres-user
+      - postgres-password
+    environment:
+      - POSTGRES_USER_FILE=/run/secrets/postgres-user
+      - POSTGRES_PASSWORD_FILE=/run/secrets/postgres-password
+
+  nginx:
+    image: nginx:stable
+    configs:
+      - source: nginx.conf
+        target: /etc/nginx/conf.d/nginx.conf
+    deploy:      
+      constraints:
+        - node.role == manager
+    secrets:
+      - source: nginx-movavi.crt
+        target: /etc/ssl/nginx/movavi.crt
+      - source: nginx-movavi.key
+        target: /etc/ssl/nginx/movavi.key
+    
+  website:
+    image: docker.movavi.ru/website
+    deploy:
+      mode: global
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+    secrets:
+      - postgres-user
+      - postgres-password
+    configs:
+      - website.conf
+
+  dashboard:
+    image: docker.movavi.ru/website-dashboard
+    deploy:
+      constraints:
+        - node.role == manager
+      secrets:
+      - postgres-user
+      - postgres-password
+    configs:
+      - dashboard.conf
+
+ volumes:
+  postgres_data:
+    driver: local # relying on PostgreSQL replication to handle data distribution
+
+configs:
+  nginx.conf:
+    file: /etc/movavi/nginx.conf
+  website.conf:
+    file: /etc/movavi/website.conf
+  dashboard:
+    file: /etc/movavi/dashboard.conf
+
+secrets:
+  postgres-user:
+    file: /etc/movavi/postgres-user
+  postgres-password:
+    name: /etc/movavi/postgres-password
+  nginx-movavi.crt:
+    file: /etc/ssl/nginx/movavi.crt
+  nginx-movavi.key:
+    file: /etc/ssl/nginx/movavi.key
