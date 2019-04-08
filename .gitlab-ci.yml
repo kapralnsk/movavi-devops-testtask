@@ -45,11 +45,20 @@ build-tag:
     - docker build --cache-from $CONTAINER_IMAGE:latest --tag $CONTAINER_IMAGE:$CI_COMMIT_TAG --tag $CONTAINER_IMAGE:stable -f Dockerfile.Web .
     - docker push $CONTAINER_IMAGE:stable
     - docker push $CONTAINER_IMAGE:$CI_COMMIT_TAG
+
+test:
+  stage: test
+  tags:
+    - website
+  only:
+    - master
+  script:
+    - echo "Running tests"
   
 deploy:
   stage: deploy
   tags:
-    - website
+    - website-master
   environment:
     name: production
     url: $WEBSITE_URL

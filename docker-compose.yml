@@ -16,9 +16,10 @@ services:
       - POSTGRES_USER_FILE=/run/secrets/postgres-user
       - POSTGRES_PASSWORD_FILE=/run/secrets/postgres-password
 
-  # read-only logical replica of postgres-master for website
+  # read-only replica of postgres-master for website
   postgres-replica:
     image: postgres:10
+    deploy:
       mode: global
     networks:
       - internal
@@ -36,9 +37,15 @@ services:
     configs:
       - source: nginx.conf
         target: /etc/nginx/conf.d/nginx.conf
+    ports:
+      - "80:80"
+      - "443:443"
     deploy:      
       constraints:
         - node.role == manager
+    networks:
+      - internal
+      - frontend
     secrets:
       - source: nginx-movavi.crt
         target: /etc/ssl/nginx/movavi.crt
@@ -53,6 +60,8 @@ services:
         parallelism: 1
         delay: 10s
         failure_action: rollback
+    networks:
+      - internal
     secrets:
       - postgres-user
       - postgres-password
@@ -64,19 +73,28 @@ services:
     deploy:
       constraints:
         - node.role == manager
-      secrets:
+    networks:
+      - internal
+    secrets:
       - postgres-user
       - postgres-password
     configs:
       - dashboard.conf
 
- volumes:
+volumes:
   postgres_data:
     driver: local # relying on PostgreSQL replication to handle data distribution
 
+networks:
+  internal:
+    internal: true
+  frontend:
+
 configs:
-  nginx.conf:
-    file: /etc/movavi/nginx.conf
+  website.nginx.conf:
+    file: /etc/movavi/website.nginx.conf
+  dashboard.nginx.conf:
+    file: /etc/movavi/dashboard.nginx.conf
   website.conf:
     file: /etc/movavi/website.conf
   dashboard:
