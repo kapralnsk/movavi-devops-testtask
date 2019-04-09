@@ -1,26 +1,10 @@
 version: '3.6'
 services:
-  postgres-master:
+  postgres:
     image: postgres:10
     deploy:
       constraints:
         - node.role == manager
-    networks:
-      - internal
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    secrets:
-      - postgres-user
-      - postgres-password
-    environment:
-      - POSTGRES_USER_FILE=/run/secrets/postgres-user
-      - POSTGRES_PASSWORD_FILE=/run/secrets/postgres-password
-
-  # read-only replica of postgres-master for website
-  postgres-replica:
-    image: postgres:10
-    deploy:
-      mode: global
     networks:
       - internal
     volumes:
