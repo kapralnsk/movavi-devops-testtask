@@ -1,0 +1,113 @@
+version: '3.6'
+services:
+  postgres-master:
+    image: postgres:10
+    deploy:
+      constraints:
+        - node.labels.type == master
+    networks:
+      - internal
+    volumes:
+      - postgres_data_master:/var/lib/postgresql/data
+    secrets:
+      - postgres-user
+      - postgres-password
+    environment:
+      - POSTGRES_USER_FILE=/run/secrets/postgres-user
+      - POSTGRES_PASSWORD_FILE=/run/secrets/postgres-password
+
+  postgres-replica:
+    image: postgres:10
+    deploy:
+      mode: global
+    networks:
+      - internal
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    secrets:
+      - postgres-user
+      - postgres-password
+    environment:
+      - POSTGRES_USER_FILE=/run/secrets/postgres-user
+      - POSTGRES_PASSWORD_FILE=/run/secrets/postgres-password
+
+  nginx:
+    image: nginx:stable
+    configs:
+      - source: website.nginx.conf
+        target: /etc/nginx/conf.d/website.nginx.conf
+      - source: dashboard.nginx.conf
+        target: /etc/nginx/conf.d/dashboard.nginx.conf
+    ports:
+      - "80:80"
+      - "443:443"
+    deploy:    
+      mode: global  
+    networks:
+      - internal
+      - frontend
+    secrets:
+      - source: nginx-movavi.crt
+        target: /etc/ssl/nginx/movavi.crt
+      - source: nginx-movavi.key
+        target: /etc/ssl/nginx/movavi.key
+    
+  website:
+    image: docker.movavi.ru/website
+    deploy:
+      replicas: 10 # picked randomly
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+    networks:
+      - internal
+    secrets:
+      - postgres-user
+      - postgres-password
+    configs:
+      - website.conf
+
+  dashboard:
+    image: docker.movavi.ru/website-dashboard
+    deploy:
+      constraints:
+        - node.labels.type == master
+    networks:
+      - internal
+    secrets:
+      - postgres-user
+      - postgres-password
+    configs:
+      - dashboard.conf
+
+volumes:
+  postgres_data:
+    driver: local # relying on PostgreSQL replication to handle data distribution
+  postgres_data_master:
+    driver: local
+
+networks:
+  internal:
+    internal: true
+  frontend:
+
+configs:
+  website.nginx.conf:
+    file: /etc/movavi/website.nginx.conf
+  dashboard.nginx.conf:
+    file: /etc/movavi/dashboard.nginx.conf
+  website.conf:
+    file: /etc/movavi/website.conf
+  dashboard:
+    file: /etc/movavi/dashboard.conf
+
+secrets:
+  postgres-user:
+    file: /etc/movavi/postgres-user
+  postgres-password:
+    name: /etc/movavi/postgres-password
+  nginx-movavi.crt:
+    file: /etc/ssl/nginx/movavi.crt
+  nginx-movavi.key:
+    file: /etc/ssl/nginx/movavi.key

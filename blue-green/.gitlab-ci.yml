@@ -1,0 +1,100 @@
+stages:
+  - build
+  - test
+  - migrate
+  - deploy
+
+variables:
+  CONTAINER_IMAGE: $CI_REGISTRY/$CI_PROJECT_PATH
+  STACK_NAME: web
+  SERVICE_NAME: ${STACK_NAME}_website
+  DOCKER_DRIVER: overlay2
+  DEPLOYMENT_STATEFILE: /etc/movavi/deployment_statefile
+
+before_script:
+  - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
+  # Lowercasing project path for container registry: it fails otherwise
+  - export CONTAINER_IMAGE=$(echo $CONTAINER_IMAGE | tr '[:upper:]' '[:lower:]')
+
+build:
+  stage: build
+  tags:
+    - build-server
+  only:
+    - master
+  script:
+    - docker pull $CONTAINER_IMAGE:latest || true
+    - docker build --cache-from $CONTAINER_IMAGE:latest --tag $CONTAINER_IMAGE:latest -f Dockerfile.Web .
+    - docker push $CONTAINER_IMAGE:latest
+
+build-tag:
+  stage: build
+  tags:
+    - build-server
+  only:
+    - tags
+  script:
+    - docker pull $CONTAINER_IMAGE:latest || true
+    - docker build --cache-from $CONTAINER_IMAGE:latest --tag $CONTAINER_IMAGE:$CI_COMMIT_TAG --tag $CONTAINER_IMAGE:stable -f Dockerfile.Web .
+    - docker push $CONTAINER_IMAGE:stable
+    - docker push $CONTAINER_IMAGE:$CI_COMMIT_TAG
+
+test:
+  stage: test
+  tags:
+    - website-master
+  only:
+    - master
+  before_script: []
+  script:
+    - echo "Running tests"
+
+migrate-db:
+  stage: migrate
+  tags:
+    - website-master
+  only:
+    - tags
+  before_script: []
+  script: 
+    - python run-migrations.py
+  
+rollback-db:
+  stage: migrate
+  tags:
+    - website-master
+  when: manual
+  before_script: []
+  script:
+    - python run-migrations.py --rollback
+  
+deploy:
+  stage: deploy
+  tags:
+    - website-master
+  environment:
+    name: production
+    url: $WEBSITE_URL
+  variables:
+    CONTAINER_TAG: stable
+  only:
+    - tags
+  script:
+    - docker pull $CONTAINER_IMAGE:$CONTAINER_TAG
+    - python deployment-state.py --get
+    - docker service update $SERVICE_NAME_$NEW_DEPLOYMENT_STATE --image $CONTAINER_IMAGE:$CONTAINER_TAG --force
+    - docker service update nginx --config-rm website-$CURRENT_DEPLOYMENT_STATE --config-add source=website-$NEW_DEPLOYMENT_STATE,target=/etc/nginx/conf.d/
+    - python deployment-state.py --switch
+
+switchback:
+  stage: deploy
+  tags:
+    - website-master
+  environment:
+    name: production
+    url: $WEBSITE_URL
+  when: manual
+  script:
+    - python deployment-state.py --get
+    - docker service update nginx --config-rm website-$CURRENT_DEPLOYMENT_STATE --config-add source=website-$NEW_DEPLOYMENT_STATE,target=/etc/nginx/conf.d/
+    - python deployment-state.py --switch
